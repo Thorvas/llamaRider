@@ -11,13 +11,11 @@ import io.github.retrooper.packetevents.factory.spigot.SpigotPacketEventsBuilder
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.Sound;
-import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Llama;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
-import org.bukkit.event.block.Action;
-import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.util.Vector;
 
@@ -79,40 +77,43 @@ public class LlamaRidePlugin extends JavaPlugin implements Listener {
     @Override
     public void onDisable() {
         PacketEvents.getAPI().terminate();
-        for (Llama llama : playerLlamas.values()) {
-            if (llama != null && !llama.isDead()) llama.remove();
+        for (Map.Entry<UUID, Llama> entry : playerLlamas.entrySet()) {
+            Llama llama = entry.getValue();
+            Player rider = Bukkit.getPlayer(entry.getKey());
+            if (llama != null && rider != null) {
+                llama.removePassenger(rider);
+            }
         }
         playerLlamas.clear();
         getLogger().info("LlamaRidePlugin disabled.");
     }
 
     @EventHandler
-    public void onPlayerInteract(PlayerInteractEvent event) {
-        Player player = event.getPlayer();
+    public void onLlamaInteract(PlayerInteractEntityEvent event) {
+        if (!(event.getRightClicked() instanceof Llama llama)) return;
 
-        if (event.getAction() == Action.RIGHT_CLICK_BLOCK && event.getClickedBlock() != null) {
-            Material block = event.getClickedBlock().getType();
-            if (block == Material.LANTERN || block.name().contains("LAMP")) {
-                UUID uuid = player.getUniqueId();
-
-                if (playerLlamas.containsKey(uuid)) {
-                    Llama llama = playerLlamas.remove(uuid);
-                    if (llama != null && !llama.isDead()) llama.remove();
-                    player.sendMessage("§eZsiadłeś z lamy!");
-                } else {
-                    Llama llama = (Llama) player.getWorld().spawnEntity(player.getLocation(), EntityType.LLAMA);
-                    llama.setAdult();
-                    llama.setTamed(true);
-                    llama.setOwner(player);
-                    llama.setCustomName("§6Lama " + player.getName());
-                    llama.setCustomNameVisible(true);
-                    llama.addPassenger(player);
-                    playerLlamas.put(uuid, llama);
-                    player.playSound(player.getLocation(), Sound.ENTITY_LLAMA_AMBIENT, 1.0f, 1.0f);
-                    player.sendMessage("§aWsiadłeś na lamę! Użyj WASD i spacji.");
-                }
-                event.setCancelled(true);
-            }
+        if (llama.getInventory().getDecor() == null ||
+                llama.getInventory().getDecor().getType() == Material.AIR) {
+            return;
         }
+
+        Player player = event.getPlayer();
+        UUID uuid = player.getUniqueId();
+
+        if (playerLlamas.containsKey(uuid) && playerLlamas.get(uuid).equals(llama)) {
+            llama.removePassenger(player);
+            playerLlamas.remove(uuid);
+            player.sendMessage("§eZsiadłeś z lamy!");
+        } else {
+            if (playerLlamas.containsKey(uuid)) {
+                Llama previous = playerLlamas.get(uuid);
+                previous.removePassenger(player);
+            }
+            llama.addPassenger(player);
+            playerLlamas.put(uuid, llama);
+            player.playSound(player.getLocation(), Sound.ENTITY_LLAMA_AMBIENT, 1.0f, 1.0f);
+            player.sendMessage("§aWsiadłeś na lamę! Użyj WASD i spacji.");
+        }
+        event.setCancelled(true);
     }
 }
