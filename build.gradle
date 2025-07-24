@@ -1,0 +1,56 @@
+plugins {
+    id 'java-library'
+    id 'maven-publish'
+    id("io.papermc.paperweight.userdev") version "2.0.0-beta.17"
+    id 'xyz.jpenilla.run-paper' version '2.3.1'
+}
+
+repositories {
+    mavenLocal()
+    maven {
+        url = uri('https://repo.maven.apache.org/maven2/')
+    }
+
+    maven { url = uri("https://repo.codemc.io/repository/maven-releases/") }
+
+    maven { url = uri("https://repo.codemc.io/repository/maven-snapshots/") }
+}
+
+runServer {
+    minecraftVersion("1.21.6")
+    pluginJars.from(files("libs/PacketEvents.jar"))
+}
+
+group = 'org.example'
+version = '1.0-SNAPSHOT'
+description = 'mobs-plugin'
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+publishing {
+    publications {
+        maven(MavenPublication) {
+            from(components.java)
+        }
+    }
+}
+
+dependencies {
+    paperweight.paperDevBundle("1.21.6-R0.1-SNAPSHOT")
+    implementation files("libs/PacketEvents.jar")
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+}
+
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+}
+
+tasks.withType(Javadoc) {
+    options.encoding = 'UTF-8'
+}
+
+test {
+    useJUnitPlatform()
+}
