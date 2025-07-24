@@ -3,7 +3,10 @@ package org.example;
 import com.github.retrooper.packetevents.PacketEvents;
 import com.github.retrooper.packetevents.event.PacketListener;
 import com.github.retrooper.packetevents.event.simple.PacketPlayReceiveEvent;
+import com.github.retrooper.packetevents.event.PacketReceiveEvent;
+import com.github.retrooper.packetevents.event.PacketListenerPriority;
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
+import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientSteerVehicle;
 import io.github.retrooper.packetevents.factory.spigot.SpigotPacketEventsBuilder;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
@@ -33,20 +36,21 @@ public class LlamaRidePlugin extends JavaPlugin implements Listener {
         Bukkit.getPluginManager().registerEvents(this, this);
 
         PacketEvents.setAPI(SpigotPacketEventsBuilder.build(this));
-        PacketEvents.get().load();
+        PacketEvents.getAPI().load();
 
-        PacketEvents.get().getEventManager().registerListener(new PacketListener() {
+        PacketEvents.getAPI().getEventManager().registerListener(new PacketListener() {
             @Override
-            public void onPacketReceive(PacketPlayReceiveEvent event) {
-                if (!event.getPacketType().equals(PacketType.Play.Client.STEER_VEHICLE)) return;
-
-                Player player = event.getPlayer();
+            public void onPacketReceive(PacketReceiveEvent event) {
+                if (!(event instanceof PacketPlayReceiveEvent)) return;
+                PacketPlayReceiveEvent playEvent = (PacketPlayReceiveEvent) event;
+                if (!playEvent.getPacketType().equals(PacketType.Play.Client.STEER_VEHICLE)) return;
+                Player player = playEvent.getPlayer();
                 if (!playerLlamas.containsKey(player.getUniqueId())) return;
 
                 Llama llama = playerLlamas.get(player.getUniqueId());
                 if (llama == null || llama.isDead()) return;
 
-                PacketPlayClientSteerVehicle packet = event.getPacket();
+                WrapperPlayClientSteerVehicle packet = new WrapperPlayClientSteerVehicle(event);
                 float forward = packet.getForward();
                 float sideways = packet.getSideways();
                 boolean jump = packet.isJump();
@@ -66,15 +70,15 @@ public class LlamaRidePlugin extends JavaPlugin implements Listener {
                     player.playSound(player.getLocation(), Sound.ENTITY_LLAMA_SPIT, 0.5f, 1.5f);
                 }
             }
-        });
+        }, PacketListenerPriority.NORMAL);
 
-        PacketEvents.get().init();
+        PacketEvents.getAPI().init();
         getLogger().info("LlamaRidePlugin enabled with PacketEvents!");
     }
 
     @Override
     public void onDisable() {
-        PacketEvents.get().terminate();
+        PacketEvents.getAPI().terminate();
         for (Llama llama : playerLlamas.values()) {
             if (llama != null && !llama.isDead()) llama.remove();
         }
