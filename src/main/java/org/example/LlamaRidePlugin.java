@@ -20,6 +20,7 @@ import org.bukkit.event.block.Action;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.util.Vector;
+import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -28,6 +29,14 @@ import java.util.UUID;
 public class LlamaRidePlugin extends JavaPlugin implements Listener {
 
     private final Map<UUID, Llama> playerLlamas = new HashMap<>();
+    private final Map<UUID, InputState> playerInputs = new HashMap<>();
+
+    private static class InputState {
+        boolean forward;
+        boolean backward;
+        boolean left;
+        boolean right;
+    }
 
     @Override
     public void onLoad() {
@@ -90,31 +99,15 @@ public class LlamaRidePlugin extends JavaPlugin implements Listener {
                     boolean left = (inputFlags & 0x04) != 0;     // A key
                     boolean right = (inputFlags & 0x08) != 0;    // D key
                     boolean jump = (inputFlags & 0x10) != 0;     // Space
-                    boolean sneak = (inputFlags & 0x20) != 0;    // Shift
 
                     getLogger().info("Input: F=" + forward + " B=" + backward + " L=" + left + " R=" + right + " J=" + jump);
 
-                    // Calculate movement vector
-                    Vector direction = player.getLocation().getDirection();
-                    direction.setY(0);
-                    direction.normalize();
+                    InputState state = playerInputs.computeIfAbsent(player.getUniqueId(), k -> new InputState());
+                    state.forward = forward;
+                    state.backward = backward;
+                    state.left = left;
+                    state.right = right;
 
-                    System.out.print("Direction: " + direction);
-
-                    Vector side = new Vector(-direction.getZ(), 0, direction.getX());
-                    Vector velocity = new Vector(0, 0, 0);
-
-                    // Apply movement
-                    if (forward) velocity.add(direction.multiply(0.4));
-                    if (backward) velocity.subtract(direction.multiply(0.3));
-                    if (left) velocity.subtract(side.multiply(0.3));
-                    if (right) velocity.add(side.multiply(0.3));
-
-                    // Preserve Y velocity and apply
-                    velocity.setY(llama.getVelocity().getY());
-                    llama.setVelocity(velocity);
-
-                    // Handle jumping
                     if (jump && llama.isOnGround()) {
                         llama.setVelocity(llama.getVelocity().setY(0.8));
                         player.playSound(player.getLocation(), Sound.ENTITY_LLAMA_SPIT, 0.5f, 1.5f);
@@ -129,6 +122,36 @@ public class LlamaRidePlugin extends JavaPlugin implements Listener {
         // Initialize PacketEvents
         PacketEvents.getAPI().init();
         getLogger().info("LlamaRidePlugin enabled with PacketEvents!");
+
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                for (Map.Entry<UUID, Llama> entry : playerLlamas.entrySet()) {
+                    UUID uuid = entry.getKey();
+                    Llama llama = entry.getValue();
+                    if (llama == null || llama.isDead()) continue;
+
+                    InputState state = playerInputs.get(uuid);
+                    if (state == null) continue;
+
+                    Player p = Bukkit.getPlayer(uuid);
+                    if (p == null) continue;
+
+                    Vector direction = p.getLocation().getDirection();
+                    direction.setY(0);
+                    direction.normalize();
+                    Vector side = new Vector(-direction.getZ(), 0, direction.getX());
+                    Vector velocity = new Vector(0, llama.getVelocity().getY(), 0);
+
+                    if (state.forward) velocity.add(direction.multiply(0.4));
+                    if (state.backward) velocity.subtract(direction.multiply(0.3));
+                    if (state.left) velocity.subtract(side.multiply(0.3));
+                    if (state.right) velocity.add(side.multiply(0.3));
+
+                    llama.setVelocity(velocity);
+                }
+            }
+        }.runTaskTimer(this, 1L, 1L);
     }
 
     @Override
@@ -140,6 +163,7 @@ public class LlamaRidePlugin extends JavaPlugin implements Listener {
             if (llama != null && !llama.isDead()) llama.remove();
         }
         playerLlamas.clear();
+        playerInputs.clear();
         getLogger().info("LlamaRidePlugin disabled.");
     }
 
@@ -155,6 +179,7 @@ public class LlamaRidePlugin extends JavaPlugin implements Listener {
                 if (playerLlamas.containsKey(uuid)) {
                     Llama llama = playerLlamas.remove(uuid);
                     if (llama != null && !llama.isDead()) llama.remove();
+                    playerInputs.remove(uuid);
                     player.sendMessage("§eZsiadłeś z lamy!");
                 } else {
                     Llama llama = (Llama) player.getWorld().spawnEntity(player.getLocation(), EntityType.LLAMA);
@@ -168,6 +193,7 @@ public class LlamaRidePlugin extends JavaPlugin implements Listener {
                     // Add player as passenger
                     llama.addPassenger(player);
                     playerLlamas.put(uuid, llama);
+                    playerInputs.put(uuid, new InputState());
                     player.playSound(player.getLocation(), Sound.ENTITY_LLAMA_AMBIENT, 1.0f, 1.0f);
                     player.sendMessage("§aWsiadłeś na lamę! Użyj WASD i spacji.");
 
