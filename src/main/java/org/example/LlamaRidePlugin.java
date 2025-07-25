@@ -6,8 +6,8 @@ import com.github.retrooper.packetevents.event.simple.PacketPlayReceiveEvent;
 import com.github.retrooper.packetevents.event.PacketReceiveEvent;
 import com.github.retrooper.packetevents.event.PacketListenerPriority;
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
-import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientSteerVehicle;
 import io.github.retrooper.packetevents.factory.spigot.SpigotPacketEventsBuilder;
+import io.netty.buffer.ByteBuf;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.Sound;
@@ -30,55 +30,112 @@ public class LlamaRidePlugin extends JavaPlugin implements Listener {
     private final Map<UUID, Llama> playerLlamas = new HashMap<>();
 
     @Override
-    public void onEnable() {
-
-        saveDefaultConfig();
-        Bukkit.getPluginManager().registerEvents(this, this);
-
+    public void onLoad() {
+        // Initialize PacketEvents in onLoad()
         PacketEvents.setAPI(SpigotPacketEventsBuilder.build(this));
         PacketEvents.getAPI().load();
+    }
 
+    @Override
+    public void onEnable() {
+        Bukkit.getPluginManager().registerEvents(this, this);
+
+        // Register packet listener
         PacketEvents.getAPI().getEventManager().registerListener(new PacketListener() {
             @Override
             public void onPacketReceive(PacketReceiveEvent event) {
+
                 if (!(event instanceof PacketPlayReceiveEvent)) return;
                 PacketPlayReceiveEvent playEvent = (PacketPlayReceiveEvent) event;
-                if (!playEvent.getPacketType().equals(PacketType.Play.Client.STEER_VEHICLE)) return;
+
+                // Listen for PLAYER_INPUT packets instead
+                if (!playEvent.getPacketType().equals(PacketType.Play.Client.PLAYER_INPUT)) return;
+
+                System.out.println("Received packet: " + event.getPacketType());
+
                 Player player = playEvent.getPlayer();
                 if (!playerLlamas.containsKey(player.getUniqueId())) return;
+
+                System.out.println("Player " + player.getName() + " is riding a llama.");
 
                 Llama llama = playerLlamas.get(player.getUniqueId());
                 if (llama == null || llama.isDead()) return;
 
-                WrapperPlayClientSteerVehicle packet = new WrapperPlayClientSteerVehicle(event);
-                float forward = packet.getForward();
-                float sideways = packet.getSideways();
-                boolean jump = packet.isJump();
+                System.out.println("Llama found for player " + player.getName() + ": " + llama.getCustomName());
 
-                Vector direction = player.getLocation().getDirection();
-                direction.setY(0);
-                direction.normalize();
+                // Check if player is actually riding the llama
+                if (!llama.getPassengers().contains(player)) return;
 
-                Vector side = new Vector(-direction.getZ(), 0, direction.getX());
+                System.out.println("Player " + player.getName() + " is riding the llama.");
 
-                Vector velocity = direction.multiply(forward * 0.4).add(side.multiply(sideways * 0.3));
-                velocity.setY(llama.getVelocity().getY());
-                llama.setVelocity(velocity);
+                try {
+                    // Manually read packet data to avoid version issues
+                    var buf = playEvent.getByteBuf();
 
-                if (jump && llama.isOnGround()) {
-                    llama.setVelocity(llama.getVelocity().setY(0.8));
-                    player.playSound(player.getLocation(), Sound.ENTITY_LLAMA_SPIT, 0.5f, 1.5f);
+                    System.out.println("Buffer received: " + buf);
+
+                    ByteBuf buffer = ((ByteBuf) playEvent.getByteBuf()).duplicate();
+
+                    System.out.println("Buffer readable bytes: " + buffer.readableBytes());
+                    if (buffer.readableBytes() < 1) return; // Need at least 2 bytes
+
+                    // Read the input flags (1 byte) and movement data
+                    byte inputFlags = buffer.readByte();
+
+                    System.out.println("Input flags: " + inputFlags);
+
+                    // Extract movement from flags
+                    boolean forward = (inputFlags & 0x01) != 0;  // W key
+                    boolean backward = (inputFlags & 0x02) != 0; // S key
+                    boolean left = (inputFlags & 0x04) != 0;     // A key
+                    boolean right = (inputFlags & 0x08) != 0;    // D key
+                    boolean jump = (inputFlags & 0x10) != 0;     // Space
+                    boolean sneak = (inputFlags & 0x20) != 0;    // Shift
+
+                    getLogger().info("Input: F=" + forward + " B=" + backward + " L=" + left + " R=" + right + " J=" + jump);
+
+                    // Calculate movement vector
+                    Vector direction = player.getLocation().getDirection();
+                    direction.setY(0);
+                    direction.normalize();
+
+                    System.out.print("Direction: " + direction);
+
+                    Vector side = new Vector(-direction.getZ(), 0, direction.getX());
+                    Vector velocity = new Vector(0, 0, 0);
+
+                    // Apply movement
+                    if (forward) velocity.add(direction.multiply(0.4));
+                    if (backward) velocity.subtract(direction.multiply(0.3));
+                    if (left) velocity.subtract(side.multiply(0.3));
+                    if (right) velocity.add(side.multiply(0.3));
+
+                    // Preserve Y velocity and apply
+                    velocity.setY(llama.getVelocity().getY());
+                    llama.setVelocity(velocity);
+
+                    // Handle jumping
+                    if (jump && llama.isOnGround()) {
+                        llama.setVelocity(llama.getVelocity().setY(0.8));
+                        player.playSound(player.getLocation(), Sound.ENTITY_LLAMA_SPIT, 0.5f, 1.5f);
+                    }
+
+                } catch (Exception e) {
+                    getLogger().warning("Error processing player input: " + e.getMessage());
                 }
             }
         }, PacketListenerPriority.NORMAL);
 
+        // Initialize PacketEvents
         PacketEvents.getAPI().init();
         getLogger().info("LlamaRidePlugin enabled with PacketEvents!");
     }
 
     @Override
     public void onDisable() {
-        PacketEvents.getAPI().terminate();
+        if (PacketEvents.getAPI() != null) {
+            PacketEvents.getAPI().terminate();
+        }
         for (Llama llama : playerLlamas.values()) {
             if (llama != null && !llama.isDead()) llama.remove();
         }
@@ -104,12 +161,17 @@ public class LlamaRidePlugin extends JavaPlugin implements Listener {
                     llama.setAdult();
                     llama.setTamed(true);
                     llama.setOwner(player);
+                    llama.setDomestication(llama.getMaxDomestication());
                     llama.setCustomName("§6Lama " + player.getName());
                     llama.setCustomNameVisible(true);
+
+                    // Add player as passenger
                     llama.addPassenger(player);
                     playerLlamas.put(uuid, llama);
                     player.playSound(player.getLocation(), Sound.ENTITY_LLAMA_AMBIENT, 1.0f, 1.0f);
                     player.sendMessage("§aWsiadłeś na lamę! Użyj WASD i spacji.");
+
+                    getLogger().info("Player " + player.getName() + " mounted llama");
                 }
                 event.setCancelled(true);
             }

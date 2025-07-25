@@ -39,7 +39,7 @@ publishing {
 
 dependencies {
     paperweight.paperDevBundle("1.21.6-R0.1-SNAPSHOT")
-    implementation files("libs/PacketEvents.jar")
+    compileOnly files("libs/PacketEvents.jar")
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
 }
 

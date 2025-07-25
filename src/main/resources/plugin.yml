@@ -2,3 +2,4 @@ name: LlamaRider
 main: org.example.LlamaRidePlugin
 version: 1.0
 api-version: 1.21.6
+depend: [packetevents]
