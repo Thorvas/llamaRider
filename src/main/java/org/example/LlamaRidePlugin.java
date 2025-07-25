@@ -18,6 +18,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.entity.EntityDismountEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.util.Vector;
 import org.bukkit.scheduler.BukkitRunnable;
@@ -135,7 +136,7 @@ public class LlamaRidePlugin extends JavaPlugin implements Listener {
                     if (state == null) continue;
 
                     Player p = Bukkit.getPlayer(uuid);
-                    if (p == null) continue;
+                    if (p == null || !llama.getPassengers().contains(p)) continue;
 
                     Vector direction = p.getLocation().getDirection();
                     direction.setY(0);
@@ -205,5 +206,17 @@ public class LlamaRidePlugin extends JavaPlugin implements Listener {
                 event.setCancelled(true);
             }
         }
+    }
+
+    @EventHandler
+    public void onEntityDismount(EntityDismountEvent event) {
+        if (!(event.getEntity() instanceof Player player)) return;
+        UUID uuid = player.getUniqueId();
+        Llama llama = playerLlamas.get(uuid);
+        if (llama == null || !event.getDismounted().equals(llama)) return;
+        if (!llama.isDead()) llama.remove();
+        playerLlamas.remove(uuid);
+        playerInputs.remove(uuid);
+        player.sendMessage("§eZsiadłeś z lamy!");
     }
 }
