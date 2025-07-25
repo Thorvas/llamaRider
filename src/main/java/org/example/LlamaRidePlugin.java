@@ -18,17 +18,20 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.entity.EntityDismountEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.util.Vector;
 import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 public class LlamaRidePlugin extends JavaPlugin implements Listener {
 
-    private final Map<UUID, Llama> playerLlamas = new HashMap<>();
+    private final Set<Llama> spawnedLlamas = new HashSet<>();
     private final Map<UUID, InputState> playerInputs = new HashMap<>();
 
     private static class InputState {
@@ -63,17 +66,10 @@ public class LlamaRidePlugin extends JavaPlugin implements Listener {
                 System.out.println("Received packet: " + event.getPacketType());
 
                 Player player = playEvent.getPlayer();
-                if (!playerLlamas.containsKey(player.getUniqueId())) return;
+                if (!(player.getVehicle() instanceof Llama llama)) return;
+                if (llama.isDead()) return;
 
                 System.out.println("Player " + player.getName() + " is riding a llama.");
-
-                Llama llama = playerLlamas.get(player.getUniqueId());
-                if (llama == null || llama.isDead()) return;
-
-                System.out.println("Llama found for player " + player.getName() + ": " + llama.getCustomName());
-
-                // Check if player is actually riding the llama
-                if (!llama.getPassengers().contains(player)) return;
 
                 System.out.println("Player " + player.getName() + " is riding the llama.");
 
@@ -126,16 +122,13 @@ public class LlamaRidePlugin extends JavaPlugin implements Listener {
         new BukkitRunnable() {
             @Override
             public void run() {
-                for (Map.Entry<UUID, Llama> entry : playerLlamas.entrySet()) {
+                for (Map.Entry<UUID, InputState> entry : playerInputs.entrySet()) {
                     UUID uuid = entry.getKey();
-                    Llama llama = entry.getValue();
-                    if (llama == null || llama.isDead()) continue;
-
-                    InputState state = playerInputs.get(uuid);
-                    if (state == null) continue;
-
                     Player p = Bukkit.getPlayer(uuid);
                     if (p == null) continue;
+                    if (!(p.getVehicle() instanceof Llama llama) || llama.isDead()) continue;
+
+                    InputState state = entry.getValue();
 
                     Vector direction = p.getLocation().getDirection();
                     direction.setY(0);
@@ -149,6 +142,9 @@ public class LlamaRidePlugin extends JavaPlugin implements Listener {
                     if (state.right) velocity.add(side.multiply(0.3));
 
                     llama.setVelocity(velocity);
+
+                    // Rotate llama to match the rider's yaw
+                    llama.setRotation(p.getLocation().getYaw(), 0f);
                 }
             }
         }.runTaskTimer(this, 1L, 1L);
@@ -159,10 +155,10 @@ public class LlamaRidePlugin extends JavaPlugin implements Listener {
         if (PacketEvents.getAPI() != null) {
             PacketEvents.getAPI().terminate();
         }
-        for (Llama llama : playerLlamas.values()) {
+        for (Llama llama : spawnedLlamas) {
             if (llama != null && !llama.isDead()) llama.remove();
         }
-        playerLlamas.clear();
+        spawnedLlamas.clear();
         playerInputs.clear();
         getLogger().info("LlamaRidePlugin disabled.");
     }
@@ -174,26 +170,21 @@ public class LlamaRidePlugin extends JavaPlugin implements Listener {
         if (event.getAction() == Action.RIGHT_CLICK_BLOCK && event.getClickedBlock() != null) {
             Material block = event.getClickedBlock().getType();
             if (block == Material.LANTERN || block.name().contains("LAMP")) {
-                UUID uuid = player.getUniqueId();
-
-                if (playerLlamas.containsKey(uuid)) {
-                    Llama llama = playerLlamas.remove(uuid);
-                    if (llama != null && !llama.isDead()) llama.remove();
-                    playerInputs.remove(uuid);
+                if (player.getVehicle() instanceof Llama mount) {
+                    player.leaveVehicle();
                     player.sendMessage("§eZsiadłeś z lamy!");
                 } else {
                     Llama llama = (Llama) player.getWorld().spawnEntity(player.getLocation(), EntityType.LLAMA);
                     llama.setAdult();
                     llama.setTamed(true);
-                    llama.setOwner(player);
+                    llama.setOwner(null);
                     llama.setDomestication(llama.getMaxDomestication());
-                    llama.setCustomName("§6Lama " + player.getName());
+                    llama.setCustomName("§6Lama");
                     llama.setCustomNameVisible(true);
 
-                    // Add player as passenger
                     llama.addPassenger(player);
-                    playerLlamas.put(uuid, llama);
-                    playerInputs.put(uuid, new InputState());
+                    spawnedLlamas.add(llama);
+                    playerInputs.put(player.getUniqueId(), new InputState());
                     player.playSound(player.getLocation(), Sound.ENTITY_LLAMA_AMBIENT, 1.0f, 1.0f);
                     player.sendMessage("§aWsiadłeś na lamę! Użyj WASD i spacji.");
 
@@ -202,5 +193,13 @@ public class LlamaRidePlugin extends JavaPlugin implements Listener {
                 event.setCancelled(true);
             }
         }
+    }
+
+    @EventHandler
+    public void onEntityDismount(EntityDismountEvent event) {
+        if (!(event.getEntity() instanceof Player player)) return;
+        if (!(event.getDismounted() instanceof Llama)) return;
+        playerInputs.remove(player.getUniqueId());
+        player.sendMessage("§eZsiadłeś z lamy!");
     }
 }
