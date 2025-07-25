@@ -149,6 +149,9 @@ public class LlamaRidePlugin extends JavaPlugin implements Listener {
                     if (state.right) velocity.add(side.multiply(0.3));
 
                     llama.setVelocity(velocity);
+
+                    // Rotate llama to match the rider's yaw
+                    llama.setRotation(p.getLocation().getYaw(), 0f);
                 }
             }
         }.runTaskTimer(this, 1L, 1L);
